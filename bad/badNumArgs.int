@@ -1,0 +1,5 @@
+bool test(int one, int two, int three) {
+    return one > two + three;
+}
+
+test(1,2);

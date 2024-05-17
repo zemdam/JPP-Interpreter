@@ -1,0 +1,6 @@
+int x(int x) {
+    x(3);
+    return x;
+}
+
+x(3);

@@ -1,0 +1,5 @@
+int t(int x, bool y) {
+    return x;
+}
+
+t(true, true);

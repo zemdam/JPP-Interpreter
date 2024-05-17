@@ -3,6 +3,7 @@ import System.Environment (getArgs)
 import Bnfc.Par (myLexer, pProgram)
 import System.IO (hPutStrLn, stderr)
 import TypeChecker (typeChecker)
+import Interpreter (interpreter)
 
 main :: IO ()
 main = do
@@ -18,4 +19,6 @@ run s =
         Left e -> hPutStrLn stderr ("parse error: " ++ e)
         Right p -> case typeChecker p of
             Left e -> hPutStrLn stderr ("type check error: " ++ e)
-            Right _ -> return ()
+            Right _ -> case interpreter p of
+                Left e -> hPutStrLn stderr ("interpreter error: " ++ e)
+                Right i -> i
