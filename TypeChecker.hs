@@ -1,95 +1,170 @@
-{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
-{-# HLINT ignore "Use first" #-}
+-- {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
+-- {-# HLINT ignore "Use first" #-}
+{-# LANGUAGE FlexibleContexts #-}
 module TypeChecker where
-import Bnfc.Abs (Program, Ident (Ident), Type, Stmt, Type' (Int, Fun, Bool, Str), Program' (Program), Stmt' (FnDef, Empty, BStmt, Decl), Arg, Arg' (ValArg, RefArg), Block, Block' (Block), Expr, Expr' (EVar, ELitInt, ELitTrue, ELitFalse, EString, Neg, Not, EApp))
-import Control.Monad.Reader (ReaderT (runReaderT), MonadReader (ask, local))
-import Data.Map (Map, empty, insert, member, union)
+import qualified Bnfc.Abs as Abs
+import Control.Monad.Reader (ReaderT (runReaderT), MonadReader (ask, local), zipWithM_)
 import Control.Monad.Except (MonadError(throwError))
 import qualified Data.Map as Map
 
 type Err = Either String
-type TypeMap = Map Ident Type
-type CheckerReader a = ReaderT (TypeMap, Type) Err a
+type TypeMap = Map.Map Abs.Ident Abs.Type
+type CheckerReader a = ReaderT (TypeMap, Abs.Type) Err a
 
-insertReader :: Ident -> Type -> (TypeMap, Type) -> (TypeMap, Type)
-insertReader i ty (m',t) = (insert i ty m', t)
+insertReader :: Abs.Ident -> Abs.Type -> (TypeMap, Abs.Type) -> (TypeMap, Abs.Type)
+insertReader i ty (m',t) = (Map.insert i ty m', t)
 
-startType :: Type
-startType = Int (Just (0,0))
+goInFunReader :: Abs.Ident -> Abs.Type -> TypeMap -> (TypeMap, Abs.Type) -> (TypeMap, Abs.Type)
+goInFunReader i ty m (m',_) = (Map.union m (Map.insert i ty m'), ty)
 
-typeChecker :: Program -> Err ()
-typeChecker p = runReaderT (checkProgram p) (empty, startType)
+throwErrorPos :: MonadError String m => Abs.BNFC'Position -> String -> m a
+throwErrorPos Nothing e = throwError e
+throwErrorPos (Just (l,_)) e = throwError (e ++ " at line " ++ show l)
 
-argType :: Arg -> Type
-argType (ValArg _ t _) = t
-argType (RefArg _ t _) = t
+startType :: Abs.Type
+startType = Abs.Int (Just (0,0))
 
-checkProgram :: Program -> CheckerReader ()
-checkProgram (Program _ ss) = do
-    m <- local (\(_,t) -> (empty,t)) (preCheckStmts ss)
-    local (\(m',t) -> (m `union` m', t)) (checkStmts ss)
+typeChecker :: Abs.Program -> Err ()
+typeChecker p = runReaderT (checkProgram p) (Map.empty, startType)
 
-checkBlock :: Block -> CheckerReader ()
-checkBlock (Block _ ss) = do
-    m <- local (\(_,t) -> (empty,t)) (preCheckStmts ss)
-    local (\(m',t) -> (m `union` m', t)) (checkStmts ss)
+checkProgram :: Abs.Program -> CheckerReader ()
+checkProgram (Abs.Program _ ss) = checkStmts ss
 
-checkStmts :: [Stmt] -> CheckerReader ()
-checkStmts (FnDef _ _ _ _ b : ss) = checkBlock b >> checkStmts ss
-checkStmts (Empty _ : ss) = checkStmts ss
-checkStmts (BStmt _ b : ss) = checkBlock b >> checkStmts ss
-checkStmts (Decl _ t i e : ss) = do
-    t' <- checkExpr e
-    matchType t t'
-    local (insertReader i t) (checkStmts ss)
-checkStmts (_:ss) = checkStmts ss
-checkStmts [] = return ()
+checkStmts :: [Abs.Stmt] -> CheckerReader ()
+checkStmts s = checkStmts' (fixType s) where
+    checkStmts' (Abs.FnDef _ t i as b : ss) = do
+        m <- checkArgs as
+        local (goInFunReader i t m) (checkBlock b)
+        local (insertReader i t) (checkStmts' ss)
+    checkStmts' (Abs.Empty _ : ss) = checkStmts' ss
+    checkStmts' (Abs.BStmt _ b : ss) = checkBlock b >> checkStmts' ss
+    checkStmts' (Abs.Decl p t i e : ss) = do
+        t' <- checkExpr e
+        _ <- matchType p t t'
+        local (insertReader i t) (checkStmts' ss)
+    checkStmts' (Abs.Ass p i e : ss) = do
+        t1 <- safeLookup p i
+        t2 <- checkExpr e
+        _ <- matchType p t1 t2
+        checkStmts' ss
+    checkStmts' (Abs.Incr p i : ss) = do
+        t <- safeLookup p i
+        _ <- matchType p t (Abs.Int p)
+        checkStmts' ss
+    checkStmts' (Abs.Decr p i : ss) = do
+        t <- safeLookup p i
+        _ <- matchType p t (Abs.Int p)
+        checkStmts' ss
+    checkStmts' (Abs.Ret p e : ss) = do
+        (_,t1) <- ask
+        t2 <- checkExpr e
+        _ <- matchType p t1 t2
+        checkStmts' ss
+    checkStmts' (Abs.Cond p e s' : ss) = do
+        t <- checkExpr e
+        _ <- matchType p t (Abs.Bool p)
+        condStmt s'
+        checkStmts' ss
+    checkStmts' (Abs.CondElse p e s1 s2 : ss) = do
+        t <- checkExpr e
+        _ <- matchType p t (Abs.Bool p)
+        condStmt s1
+        condStmt s2
+        checkStmts' ss
+    checkStmts' (Abs.While p e s' : ss) = do
+        t <- checkExpr e
+        _ <- matchType p t (Abs.Bool p)
+        condStmt s'
+        checkStmts' ss
+    checkStmts' (Abs.SExp _ e : ss) = checkExpr e >> checkStmts' ss
+    checkStmts' (Abs.Print _ e : ss) = checkExpr e >> checkStmts' ss
+    checkStmts' [] = return ()
 
-eqType :: Type -> Type -> Bool
-eqType (Int _) (Int _) = True
-eqType (Str _) (Str _) = True
-eqType (Bool _) (Bool _) = True
+condStmt :: Abs.Stmt -> CheckerReader ()
+condStmt (Abs.FnDef p _ _ _ _) = throwErrorPos p "conditional definition"
+condStmt (Abs.Decl p _ _ _) = throwErrorPos p "conditional declaration"  
+condStmt s = checkStmts [s]
+
+checkBlock :: Abs.Block -> CheckerReader ()
+checkBlock (Abs.Block _ ss) = checkStmts ss
+
+checkArgs :: [Abs.Arg] -> CheckerReader TypeMap
+checkArgs (Abs.ValArg p t i : as) = do
+    (m,_) <- ask
+    if Map.member i m then
+        throwErrorPos p "duplicate parametr name"
+    else
+        local (insertReader i t) (checkArgs as)
+checkArgs (Abs.RefArg p t i : as) = do
+    (m,_) <- ask
+    if Map.member i m then
+        throwErrorPos p "duplicate parametr name"
+    else
+        local (insertReader i t) (checkArgs as)
+checkArgs [] = do
+    (m,_) <- ask
+    return m
+
+matchType :: Abs.BNFC'Position -> Abs.Type -> Abs.Type -> CheckerReader Abs.Type
+matchType p t1 t2 = if eqType t1 t2 then return t1 else throwErrorPos p "type does not match"
+
+eqType :: Abs.Type -> Abs.Type -> Bool
+eqType (Abs.Int _) (Abs.Int _) = True
+eqType (Abs.Str _) (Abs.Str _) = True
+eqType (Abs.Bool _) (Abs.Bool _) = True
+eqType (Abs.Fun _ (Abs.Int _) _) (Abs.Int _) = True
+eqType (Abs.Fun _ (Abs.Str _) _) (Abs.Str _) = True
+eqType (Abs.Fun _ (Abs.Bool _) _) (Abs.Bool _) = True
+eqType (Abs.Int _) (Abs.Fun _ (Abs.Int _) _) = True
+eqType (Abs.Str _) (Abs.Fun _ (Abs.Str _) _)  = True
+eqType (Abs.Bool _) (Abs.Fun _ (Abs.Bool _) _) = True
 eqType _ _ = False
 
-matchType :: Type -> Type -> CheckerReader ()
-matchType t1 t2 = if eqType t1 t2 then return () else throwError "type does not match"
+checkExpr :: Abs.Expr -> CheckerReader Abs.Type
+checkExpr (Abs.EVar p i) = safeLookup p i
+checkExpr (Abs.ELitInt p _) = return (Abs.Int p)
+checkExpr (Abs.ELitTrue p) = return (Abs.Bool p)
+checkExpr (Abs.ELitFalse p) = return (Abs.Bool p)
+checkExpr (Abs.EApp p i es) = do
+    f <- safeLookup p i
+    case f of
+        Abs.Fun _ t ts ->
+            if length es /= length ts then
+                throwErrorPos p "called fun with wrong number of arguments"
+            else do
+                ts' <- mapM checkExpr es
+                zipWithM_ (matchType p) ts ts'
+                return t
+        _ -> throwErrorPos p "called not a fun"
+checkExpr (Abs.EString p _) = return (Abs.Str p)
+checkExpr (Abs.Neg p e) = checkExpr e >>= matchType p (Abs.Int p)
+checkExpr (Abs.Not p e) = checkExpr e >>= matchType p (Abs.Bool p)
+checkExpr (Abs.EMul p e1 _ e2) = matchOp p (Abs.Int p) e1 e2
+checkExpr (Abs.EAdd p e1 _ e2) = matchOp p (Abs.Int p) e1 e2
+checkExpr (Abs.ERel p e1 _ e2) = matchOp p (Abs.Bool p) e1 e2
+checkExpr (Abs.EAnd p e1 e2) = matchOp p (Abs.Bool p) e1 e2
+checkExpr (Abs.EOr p e1 e2) = matchOp p (Abs.Bool p) e1 e2
 
-safeLookup :: Ident -> CheckerReader Type
-safeLookup i = do
+matchOp :: Abs.BNFC'Position -> Abs.Type -> Abs.Expr -> Abs.Expr -> CheckerReader Abs.Type
+matchOp p t e1 e2 = do
+    t1 <- checkExpr e1
+    _ <- matchType p t t1
+    t2 <- checkExpr e2
+    matchType p t t2
+
+safeLookup :: Abs.BNFC'Position -> Abs.Ident -> CheckerReader Abs.Type
+safeLookup p i = do
     (m, _) <- ask
     case Map.lookup i m of
-        Nothing -> throwError "variable not defined"
+        Nothing -> throwErrorPos p "variable not defined"
         Just x -> return x
-checkExpr :: Expr -> CheckerReader Type
-checkExpr (EVar p i) = safeLookup i
-checkExpr (ELitInt p _) = return (Int p)
-checkExpr (ELitTrue p) = return (Bool p)
-checkExpr (ELitFalse p) = return (Bool p)
-checkExpr (EApp p i es) = do
-    f <- safeLookup i 
-    case f of
-        Fun p t ts -> return t
-        _ -> throwError "called not a fun"
-checkExpr (EString p _) = return (Str p)
-checkExpr (Neg p e) = checkExpr e >>= matchType (Int p) >> return (Int p)
-checkExpr (Not p e) = checkExpr e >>= matchType (Bool p) >> return (Bool p)
 
-
-fixType :: [Stmt] -> [Stmt]
-fixType (FnDef p t i as b : ss) = FnDef p (Fun p t (map argType as)) i as b : fixType ss
+fixType :: [Abs.Stmt] -> [Abs.Stmt]
+fixType (Abs.FnDef p t i as b : ss) = Abs.FnDef p (Abs.Fun p t (map argType as)) i as b : fixType ss
 fixType (s:ss) = s : fixType ss
 fixType [] = []
 
-preCheckStmts :: [Stmt] -> CheckerReader TypeMap
-preCheckStmts sts = preCheckStmts' (fixType sts) where
-    preCheckStmts' [] = do
-        (m, _) <- ask
-        return m
-    preCheckStmts' (FnDef _ ty i _ _:ss) = do
-        (m, _) <- ask
-        if member i m then
-            let (Ident n) = i in throwError ("double definition of function " ++ n)
-        else
-            local (insertReader i ty) (preCheckStmts ss)
-    preCheckStmts' (_:ss)  = preCheckStmts ss
+argType :: Abs.Arg -> Abs.Type
+argType (Abs.ValArg _ t _) = t
+argType (Abs.RefArg _ t _) = t
 

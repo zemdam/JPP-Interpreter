@@ -1,2 +1,7 @@
+bool x(bool z, int x) {return z;}
 int y = 3;
-int x = !y;
+bool z = true;
+y++;
+return 3;
+
+if (3) x;
