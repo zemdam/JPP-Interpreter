@@ -19,6 +19,8 @@ run s =
         Left e -> hPutStrLn stderr ("parse error: " ++ e)
         Right p -> case typeChecker p of
             Left e -> hPutStrLn stderr ("type check error: " ++ e)
-            Right _ -> case interpreter p of
-                Left e -> hPutStrLn stderr ("interpreter error: " ++ e)
-                Right i -> i
+            Right () -> do
+                ip <- interpreter p
+                case ip of
+                    Left e -> hPutStrLn stderr ("interpreter error: " ++ e)
+                    Right _ -> return ()

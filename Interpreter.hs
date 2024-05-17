@@ -2,7 +2,7 @@ module Interpreter where
 
 import qualified Bnfc.Abs as Abs
 import Common (throwErrorPos)
-import Control.Monad.Except (MonadError (throwError))
+import Control.Monad.Except (ExceptT, MonadError (throwError), MonadIO (liftIO), runExceptT)
 import Control.Monad.Reader (MonadReader (ask, local), ReaderT (runReaderT), asks)
 import Control.Monad.State (StateT, evalStateT, gets, modify)
 import qualified Data.Map as Map
@@ -17,10 +17,10 @@ type Stt = Map.Map Loc Value
 
 data Value = TEmpty | TInt Integer | TStr String | TBool Bool | TFun Env [Abs.Arg] Abs.Block
 
-type InterpreterMonad a = ReaderT Env (StateT Stt Err) a
+type InterpreterMonad a = ExceptT String (ReaderT Env (StateT Stt IO)) a
 
-interpreter :: Abs.Program -> Err (IO ())
-interpreter p = evalStateT (runReaderT (evalProgram p) Map.empty) Map.empty
+interpreter :: Abs.Program -> IO (Err ())
+interpreter p = evalStateT (runReaderT (runExceptT (evalProgram p)) Map.empty) Map.empty
 
 putNewVal :: Abs.Ident -> Value -> InterpreterMonad Env
 putNewVal i v = do
@@ -46,10 +46,10 @@ changeVal i v = do
     Nothing -> throwError "no location for variable"
     Just l' -> modify (Map.insert l' v)
 
-evalProgram :: Abs.Program -> InterpreterMonad (IO ())
-evalProgram (Abs.Program _ ss) = evalStmts ss >> return (return ())
+evalProgram :: Abs.Program -> InterpreterMonad ()
+evalProgram (Abs.Program _ ss) = evalStmts ss >> return ()
 
-evalStmts :: [Abs.Stmt] -> InterpreterMonad (IO Value)
+evalStmts :: [Abs.Stmt] -> InterpreterMonad Value
 evalStmts (Abs.FnDef _ _ i as b : ss) = do
   oe <- ask
   ne <- putNewVal i (TFun oe as b)
@@ -67,35 +67,31 @@ evalStmts (Abs.Ass _ i e : ss) = do
 evalStmts (Abs.Incr p i : ss) = evalStmts (Abs.Ass p i (Abs.EAdd p (Abs.EVar p i) (Abs.Plus p) (Abs.ELitInt p 1)) : ss)
 evalStmts (Abs.Decr p i : ss) = evalStmts (Abs.Ass p i (Abs.EAdd p (Abs.EVar p i) (Abs.Minus p) (Abs.ELitInt p 1)) : ss)
 evalStmts (Abs.Ret _ e : _) = do
-    v <- evalExpr e
-    return (return v)
+  evalExpr e
 evalStmts (Abs.Cond _ e s : ss) = do
-    v <- evalExpr e
-    if getBool v then
-        evalStmts (s : ss)
-    else
-        evalStmts ss
+  v <- evalExpr e
+  if getBool v
+    then evalStmts (s : ss)
+    else evalStmts ss
 evalStmts (Abs.CondElse _ e s1 s2 : ss) = do
-    v <- evalExpr e
-    if getBool v then
-        evalStmts (s1 : ss)
-    else
-        evalStmts (s2 : ss)
+  v <- evalExpr e
+  if getBool v
+    then evalStmts (s1 : ss)
+    else evalStmts (s2 : ss)
 evalStmts (Abs.While p e s : ss) = do
-    v <- evalExpr e
-    if getBool v then
-        evalStmts (Abs.While p e s : ss)
-    else
-        evalStmts ss
+  v <- evalExpr e
+  if getBool v
+    then evalStmts (Abs.While p e s : ss)
+    else evalStmts ss
 evalStmts (Abs.SExp _ e : ss) = evalExpr e >> evalStmts ss
 evalStmts (Abs.Print _ e : ss) = do
-    v <- evalExpr e
-    _ <- printVal v
-    evalStmts ss
-evalStmts [] = return (return TEmpty)
+  v <- evalExpr e
+  _ <- printVal v
+  evalStmts ss
+evalStmts [] = return TEmpty
 
-evalBlock :: Abs.Block -> InterpreterMonad (IO ())
-evalBlock (Abs.Block _ ss) = evalStmts ss >> return (return ())
+evalBlock :: Abs.Block -> InterpreterMonad ()
+evalBlock (Abs.Block _ ss) = evalStmts ss >> return ()
 
 evalExpr :: Abs.Expr -> InterpreterMonad Value
 evalExpr (Abs.EVar _ i) = getVal i
@@ -132,6 +128,7 @@ evalExpr (Abs.EOr _ e1 e2) = do
   v1 <- evalExpr e1
   v2 <- evalExpr e2
   return (TBool (getBool v1 || getBool v2))
+-- evalExpr (Abs.EApp )
 
 appMulOp :: Abs.MulOp -> Integer -> Integer -> InterpreterMonad Integer
 appMulOp (Abs.Times _) v1 v2 = return (v1 * v2)
@@ -162,9 +159,9 @@ getBool (TBool b) = b
 getBool TEmpty = False
 getBool _ = undefined
 
-printVal :: Value -> InterpreterMonad (IO ())
-printVal TEmpty = return (return ())
-printVal (TInt i) = return (putStr (show i))
-printVal (TStr s) = return (putStr s)
-printVal (TBool b) = return (putStr (show b))
-printVal (TFun {}) = return (return ())
+printVal :: Value -> InterpreterMonad ()
+printVal TEmpty = return ()
+printVal (TInt i) = liftIO (print i)
+printVal (TStr s) = liftIO (putStrLn s)
+printVal (TBool b) = liftIO (print b)
+printVal (TFun {}) = return ()

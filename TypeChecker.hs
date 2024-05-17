@@ -2,7 +2,6 @@ module TypeChecker where
 
 import qualified Bnfc.Abs as Abs
 import Common (Err, throwErrorPos)
-import Control.Monad.Except (MonadError (throwError))
 import Control.Monad.Reader (MonadReader (ask, local), ReaderT (runReaderT), zipWithM_)
 import qualified Data.Map as Map
 
