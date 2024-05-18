@@ -37,14 +37,4 @@ int hanoi(int n, string a, string b, string c) {
     hanoi(n-1, b, a, c);
 }
 
-hanoi(2, "a", "b", "c");
-
-int parent(bool b) {
-    int child () {
-        print "child";
-        parent(false);
-    }
-    if (b) child(); else print "parent";   
-}
-
-parent(true);
+hanoi(3, "a", "b", "c");

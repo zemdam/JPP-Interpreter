@@ -1,3 +1,7 @@
+# Opis języka
+Język imperatywny na podstawie języka `Latte`. Ma trzy typy: `int`, `bool` oraz `string`. Większość konstrukcji jest identyczna jak w `Latte`. Z tą różnicą, że wykonywane operacje nie muszą być w ciele jakiejś funkcji (podobnie jak w `Python`). Dodatkowo można przekazywać zmienne poprzez wartość oraz zmienną.
+
+Jeśli funkcja nie zakończy się `return _;` przyjmujemy domyślne zwracane wartości: `int` -> `0`, `bool` -> `false`, `string` -> `""`.
 # Tabelka cech
 ```
 Na 15 punktów

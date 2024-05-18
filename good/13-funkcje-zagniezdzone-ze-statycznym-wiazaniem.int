@@ -17,3 +17,13 @@ int t1() {
 string s1 = "s3";
 t1();
 }
+
+int parent(bool b) {
+    int child () {
+        print "child";
+        parent(false);
+    }
+    if (b) child(); else print "parent";   
+}
+
+parent(true);
