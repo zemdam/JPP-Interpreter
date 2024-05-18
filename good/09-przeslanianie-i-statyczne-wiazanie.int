@@ -1,0 +1,17 @@
+string s = "global";
+
+int f() {
+    {
+        string s = "function";
+        {
+            s = "in function";
+        }
+        print s; // Should be "in function"
+    }
+    print s; // Should be "global"
+}
+
+{
+string s = "in block";
+f();
+}

@@ -1,0 +1,17 @@
+bool cmp(int a, int b) {
+    return a > b;
+}
+
+string s() {
+    string result = "";
+
+    if (cmp(3, 5)) {
+        result = "3 > 5";
+    } else {
+        result = "3 <= 5";
+    }
+
+    return result;
+}
+
+print s(); // Should be "3 <= 5";

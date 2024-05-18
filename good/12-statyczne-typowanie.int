@@ -1,0 +1,4 @@
+bool check(int x) {
+    bool b = x > 0;
+    return "b";
+}

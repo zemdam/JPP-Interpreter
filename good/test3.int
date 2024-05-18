@@ -1,4 +1,0 @@
-int z = 2;
-int x(int z, int & z) {
-    print z;
-}

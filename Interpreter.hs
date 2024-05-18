@@ -135,7 +135,7 @@ evalExpr (Abs.EOr _ e1 e2) = do
 evalExpr (Abs.EApp _ i es) = do
   v1 <- getVal i
   let (t, e1, as, b) = getFun v1
-  e2 <- putNewVal i (TFun t e1 as b)
+  e2 <- local (const e1) (putNewVal i (TFun t e1 as b))
   e3 <- addArgs es as e2
   v2 <- local (const e3) (evalBlock b)
   return (getRetVal v2 t)

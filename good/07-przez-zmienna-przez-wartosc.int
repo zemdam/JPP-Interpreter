@@ -1,0 +1,14 @@
+int power(int & a, int n) {
+    int x = a;
+    while (n > 1) {
+        a = a * x;
+        n--;
+    }
+}
+
+int x = 2;
+int n = 10;
+power(x, n);
+
+print x; // Should be "1024"
+print n; // Should be "10"

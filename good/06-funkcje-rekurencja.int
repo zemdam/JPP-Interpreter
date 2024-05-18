@@ -14,3 +14,37 @@ bool check_prime(int num) {
 
 print check_prime(1024); // Should print "False"
 print check_prime(17489); // Should print "True"
+
+int power(int a, int n) {
+    if (n <= 0) {
+        return 1;
+    }
+
+    return a * power(a, n - 1);
+}
+
+print power(2,10); // Should be "1024"
+
+int hanoi(int n, string a, string b, string c) {
+    if (n <= 0) {
+        return 0;
+    }
+    hanoi(n-1, a, c, b);
+    print "-----";
+    print a;
+    print "\\/";
+    print c;
+    hanoi(n-1, b, a, c);
+}
+
+hanoi(2, "a", "b", "c");
+
+int parent(bool b) {
+    int child () {
+        print "child";
+        parent(false);
+    }
+    if (b) child(); else print "parent";   
+}
+
+parent(true);
