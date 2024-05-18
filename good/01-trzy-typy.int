@@ -1,0 +1,7 @@
+int number = 2001;
+string text = "sample text";
+bool boolean = true;
+
+print number; // Should print "2001"
+print text; // Should print "sample text"
+print boolean; // Should print "True"

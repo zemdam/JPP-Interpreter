@@ -1,0 +1,13 @@
+int x = 0;
+print x; // Should print "0"
+x = x + 1;
+print x; // Should print "1"
+
+string s = "something";
+string s2 = "nothing";
+
+print s; // Should print "something"
+s = s2;
+print s; // Should print "nothing"
+s = "something and nothing";
+print s; // Should print "something and nothing"

@@ -28,7 +28,7 @@ checkStmts :: [Abs.Stmt] -> CheckerReader ()
 checkStmts s = checkStmts' (fixType s)
   where
     checkStmts' (Abs.FnDef _ t i as b : ss) = do
-      m <- checkArgs as
+      m <- checkArgs as Map.empty
       local (goInFunReader i t m) (checkBlock b)
       local (insertReader i t) (checkStmts' ss)
     checkStmts' (Abs.Empty _ : ss) = checkStmts' ss
@@ -83,21 +83,17 @@ condStmt s = checkStmts [s]
 checkBlock :: Abs.Block -> CheckerReader ()
 checkBlock (Abs.Block _ ss) = checkStmts ss
 
-checkArgs :: [Abs.Arg] -> CheckerReader TypeMap
-checkArgs (Abs.ValArg p t i : as) = do
-  (m, _) <- ask
+checkArgs :: [Abs.Arg] -> TypeMap -> CheckerReader TypeMap
+checkArgs (Abs.ValArg p t i : as) m = do
   if Map.member i m
     then throwErrorPos p "duplicate parametr name"
-    else local (insertReader i t) (checkArgs as)
-checkArgs (Abs.RefArg p t i : as) = do
-  (m, _) <- ask
+    else local (insertReader i t) (checkArgs as (Map.insert i t m))
+checkArgs (Abs.RefArg p t i : as) m = do
   if Map.member i m
     then throwErrorPos p "duplicate parametr name"
-    else local (insertReader i t) (checkArgs as)
-checkArgs [] = do
-  (m, _) <- ask
+    else local (insertReader i t) (checkArgs as (Map.insert i t m))
+checkArgs [] m = do
   return m
-
 matchType :: Abs.BNFC'Position -> Abs.Type -> Abs.Type -> CheckerReader Abs.Type
 matchType p t1 t2 = if eqType t1 t2 then return t1 else throwErrorPos p "type does not match"
 

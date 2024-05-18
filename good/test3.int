@@ -1,7 +1,4 @@
-bool x(bool z, int x) {return z;}
-int y = 3;
-bool z = true;
-y++;
-return 3;
-
-if (3) x;
+int z = 2;
+int x(int z, int & z) {
+    print z;
+}

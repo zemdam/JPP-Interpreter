@@ -1,0 +1,9 @@
+int x = 15;
+int y = 13;
+int z = y - x; // Should be -2
+
+bool b = 15 > 13 && y < x && z < 0 && (y - x == z) && x % y == 2;
+print b; // Should print "True"
+
+string lit = "string literal";
+print lit; // Should print "string literal"

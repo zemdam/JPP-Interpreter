@@ -15,7 +15,7 @@ type Env = Map.Map Abs.Ident Loc
 
 type Stt = Map.Map Loc Value
 
-data Value = TEmpty | TInt Integer | TStr String | TBool Bool | TFun Env [Abs.Arg] Abs.Block
+data Value = TEmpty | TInt Integer | TStr String | TBool Bool | TFun Abs.Type Env [Abs.Arg] Abs.Block
 
 type InterpreterMonad a = ExceptT String (ReaderT Env (StateT Stt IO)) a
 
@@ -50,12 +50,16 @@ evalProgram :: Abs.Program -> InterpreterMonad ()
 evalProgram (Abs.Program _ ss) = evalStmts ss >> return ()
 
 evalStmts :: [Abs.Stmt] -> InterpreterMonad Value
-evalStmts (Abs.FnDef _ _ i as b : ss) = do
+evalStmts (Abs.FnDef _ t i as b : ss) = do
   oe <- ask
-  ne <- putNewVal i (TFun oe as b)
+  ne <- putNewVal i (TFun t oe as b)
   local (const ne) (evalStmts ss)
 evalStmts (Abs.Empty _ : ss) = evalStmts ss
-evalStmts (Abs.BStmt _ b : ss) = evalBlock b >> evalStmts ss
+evalStmts (Abs.BStmt _ b : ss) = do
+  v <- evalBlock b
+  case v of
+    TEmpty -> evalStmts ss
+    _ -> return v
 evalStmts (Abs.Decl _ _ i e : ss) = do
   v <- evalExpr e
   ne <- putNewVal i v
@@ -81,7 +85,7 @@ evalStmts (Abs.CondElse _ e s1 s2 : ss) = do
 evalStmts (Abs.While p e s : ss) = do
   v <- evalExpr e
   if getBool v
-    then evalStmts (Abs.While p e s : ss)
+    then evalStmts (s : Abs.While p e s : ss)
     else evalStmts ss
 evalStmts (Abs.SExp _ e : ss) = evalExpr e >> evalStmts ss
 evalStmts (Abs.Print _ e : ss) = do
@@ -90,8 +94,8 @@ evalStmts (Abs.Print _ e : ss) = do
   evalStmts ss
 evalStmts [] = return TEmpty
 
-evalBlock :: Abs.Block -> InterpreterMonad ()
-evalBlock (Abs.Block _ ss) = evalStmts ss >> return ()
+evalBlock :: Abs.Block -> InterpreterMonad Value
+evalBlock (Abs.Block _ ss) = evalStmts ss
 
 evalExpr :: Abs.Expr -> InterpreterMonad Value
 evalExpr (Abs.EVar _ i) = getVal i
@@ -128,7 +132,31 @@ evalExpr (Abs.EOr _ e1 e2) = do
   v1 <- evalExpr e1
   v2 <- evalExpr e2
   return (TBool (getBool v1 || getBool v2))
--- evalExpr (Abs.EApp )
+evalExpr (Abs.EApp _ i es) = do
+  v1 <- getVal i
+  let (t, e1, as, b) = getFun v1
+  e2 <- putNewVal i (TFun t e1 as b)
+  e3 <- addArgs es as e2
+  v2 <- local (const e3) (evalBlock b)
+  return (getRetVal v2 t)
+
+addArgs :: [Abs.Expr] -> [Abs.Arg] -> Env -> InterpreterMonad Env
+addArgs (Abs.EVar _ i1 : es) (Abs.RefArg _ _ i2 : as) en = do
+  l <- asks (Map.lookup i1)
+  case l of
+    Nothing -> throwError "no location for variable"
+    Just l' -> do
+      addArgs es as (Map.insert i2 l' en)
+addArgs (e : es) (a : as) en1 = do
+  v <- evalExpr e
+  let i = getArgId a
+  en2 <- local (const en1) (putNewVal i v)
+  addArgs es as en2
+addArgs _ _ e = return e
+
+getArgId :: Abs.Arg -> Abs.Ident
+getArgId (Abs.ValArg _ _ i) = i
+getArgId (Abs.RefArg _ _ i) = i
 
 appMulOp :: Abs.MulOp -> Integer -> Integer -> InterpreterMonad Integer
 appMulOp (Abs.Times _) v1 v2 = return (v1 * v2)
@@ -158,6 +186,16 @@ getBool :: Value -> Bool
 getBool (TBool b) = b
 getBool TEmpty = False
 getBool _ = undefined
+
+getFun :: Value -> (Abs.Type, Env, [Abs.Arg], Abs.Block)
+getFun (TFun t e as b) = (t, e, as, b)
+getFun _ = undefined
+
+getRetVal :: Value -> Abs.Type -> Value
+getRetVal TEmpty (Abs.Int _) = TInt 0
+getRetVal TEmpty (Abs.Str _) = TStr ""
+getRetVal TEmpty (Abs.Bool _) = TBool False
+getRetVal v _ = v
 
 printVal :: Value -> InterpreterMonad ()
 printVal TEmpty = return ()

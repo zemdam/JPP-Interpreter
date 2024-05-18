@@ -1,0 +1,16 @@
+bool check_prime(int num) {
+    if (num <= 1) {
+        return false;
+    }
+    int x = 2;
+    while (x < num) {
+        if (num % x == 0) {
+            return false;
+        }
+        x++;
+    }
+    return true;
+}
+
+print check_prime(1024); // Should print "False"
+print check_prime(17489); // Should print "True"
